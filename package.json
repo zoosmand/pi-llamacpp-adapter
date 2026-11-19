@@ -1,0 +1,32 @@
+{
+  "name": "pi-llamacpp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "scripts": {
+    "build": "node node_modules/typescript/bin/tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "test:e2e": "node scripts/e2e.ts",
+    "test:live": "node scripts/e2e.ts --live",
+    "test:e2e:offline": "node scripts/e2e.ts --offline"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-schema": "1.5.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "~1.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3"
+  }
+}
