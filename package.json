@@ -16,7 +16,8 @@
     "test": "node --test test/*.test.ts",
     "test:e2e": "node scripts/e2e.ts",
     "test:live": "node scripts/e2e.ts --live",
-    "test:e2e:offline": "node scripts/e2e.ts --offline"
+    "test:e2e:offline": "node scripts/e2e.ts --offline",
+    "test:skills": "node scripts/e2e.ts --offline --standalone-fixture && node scripts/e2e.ts --offline --standalone-fixture --with-skills"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",

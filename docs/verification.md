@@ -24,3 +24,21 @@ The transport fixture intercepts only a reserved `.invalid` URL through Pi's exp
 API Engineering and API Simulation skill guidance informed boundary checks and separation of fixture/live evidence. No Postman workspace, deployment, or shared resource was needed for this minimal extension. Installed Postman CLI 1.73.0 returned `unknown command 'status'`; no successful Postman status or simulation is claimed. Socket restrictions prevented a local network simulation; the transport fixture is the documented fallback.
 
 Run `npm run test:live` outside the sandbox on a host able to reach the endpoint. If Qwen emits standalone JSON, use `PI_LLAMACPP_STANDALONE=1 npm run test:live`. A successful fixture proof alone does not establish that task's live verification requirement.
+
+## Issue #1 — `--no-skills`, 2026-11-19
+
+Created issue #1 and an initial comment before investigating; branched `issue-1` from `dev`. No Postman skills were used for this task.
+
+Inspected installed Pi 1.5.2 `dist/cli/args.js` and `dist/core/resource-loader.js`. The flag sets `noSkills`; extension loading remains independent. The skill loader excludes discovered skills while retaining explicitly supplied skill paths. The adapter does not depend on skill loading or change its behavior based on this flag.
+
+Added `npm run test:skills`. It creates a synthetic skill in an isolated Pi agent directory and checks the actual serialized model instructions, with a positive control to prove the skill is discoverable. Both runs set `PI_LLAMACPP_STANDALONE=1`, recover an untagged JSON call, execute `printf pi_adapter_ok` exactly once through Pi, and replay its successful result to the fixture.
+
+| Check | Result / ignored evidence directory |
+| --- | --- |
+| Standalone recovery with `--no-skills`; sentinel absent | Passed, `.pi-test/agent-ZCHLSf` |
+| Standalone recovery without `--no-skills`; sentinel present | Passed, `.pi-test/agent-ZN952j` |
+| Existing tagged-response Pi proof | Passed, `.pi-test/agent-P1JECf` |
+| Existing unit/provider tests | All 34 passed |
+| TypeScript check | Passed after restoring cached TypeScript 6.0.3 behind the existing temporary dependency link |
+
+This confirms the user's flag combination against the installed Pi with a fixture transport; no live llama.cpp request was made. Repository workflow and the current exclusion of Postman skills are recorded in `AGENTS.md`.

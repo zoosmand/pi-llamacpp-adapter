@@ -11,9 +11,17 @@ export const fixtureFetch = async (input, init) => {
   appendFileSync(process.env.PI_ADAPTER_FIXTURE_LOG, JSON.stringify(body) + '\n');
   assert.equal(body.stream, true);
   assert.deepEqual(body.tools.map(tool => tool.function.name), ['bash']);
+  if (process.env.PI_ADAPTER_FIXTURE_SKILLS) {
+    const instructions = JSON.stringify(body.messages.filter(message => ['system', 'developer'].includes(message.role)));
+    assert.equal(instructions.includes('adapter-skill-sentinel'), process.env.PI_ADAPTER_FIXTURE_SKILLS === 'enabled',
+      'skill discovery must follow --no-skills independently of the provider extension');
+  }
   count++;
   let content;
-  if (count === 1) content = '<function-call>{"name":"bash","arguments":{"command":"printf pi_adapter_ok"}}</function-call>';
+  if (count === 1) {
+    const call = '{"name":"bash","arguments":{"command":"printf pi_adapter_ok"}}';
+    content = process.env.PI_ADAPTER_FIXTURE_STANDALONE === '1' ? call : `<function-call>${call}</function-call>`;
+  }
   else {
     assert.equal(count, 2);
     const result = body.messages.findLast(message => message.role === 'tool');

@@ -26,6 +26,23 @@ If package downloads are unavailable but Pi is already globally installed, `node
 
 ## Response contract
 
+### Running without skills
+
+This command keeps the adapter active while disabling automatic Pi skill discovery:
+
+```sh
+PI_LLAMACPP_STANDALONE=1 pi -e ./src/extension.ts --no-skills \
+  --provider llamacpp-adapter --model Qwen2.5-Coder-32B-Instruct-Q4_K_M
+```
+
+In Pi 1.5.2, `-e` loads a provider **extension** independently of skills. `--no-skills` does not disable provider registration, standalone JSON normalization, built-in tools such as `bash`, or Pi's tool execution controls. The adapter does not load skills itself.
+
+`--no-skills` suppresses automatically discovered skills, including Postman skills if installed as Pi skills. Explicit `--skill` paths can still load; omit them to keep skills disabled. This flag does not disable other extensions, MCP integrations, prompt templates, or `AGENTS.md`/`CLAUDE.md` context. It also does not change the skills available to the separate coding assistant developing this project. Current repository instructions separately exclude Postman skills from our development work.
+
+`npm run test:skills` checks standalone tool recovery through the installed Pi twice: with `--no-skills` (a synthetic skill must be absent from model instructions), and without it (the same skill must be present). Both runs must execute the same single bash command through Pi.
+
+### Supported tool-call responses
+
 A recovered call must occupy the entire assistant text (surrounding whitespace allowed) and contain exactly:
 
 ```json
@@ -49,6 +66,7 @@ A JSON answer identical to a valid tool invocation cannot be distinguished from 
 
 ```sh
 npm run test:e2e:offline # Real installed Pi + fixture injected through its fetch option
+npm run test:skills      # Standalone recovery with skill discovery disabled/enabled
 npm run test:e2e         # Real installed Pi + local HTTP/SSE fixture
 npm run test:live        # Real installed Pi + configured llama.cpp endpoint
 ```
