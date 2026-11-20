@@ -1,14 +1,24 @@
+import { createTestArtifacts } from './test-artifacts.ts';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
 const live = process.argv.includes('--live');
 const offline = process.argv.includes('--offline');
+const standaloneFixture = process.argv.includes('--standalone-fixture');
+const withSkills = process.argv.includes('--with-skills');
+assert.ok(!standaloneFixture || offline, '--standalone-fixture requires --offline');
+assert.ok(!withSkills || standaloneFixture, '--with-skills requires --standalone-fixture');
 const root = resolve(import.meta.dirname, '..');
-await mkdir(resolve(root, '.pi-test'), { recursive: true });
-const agentDir = await mkdtemp(resolve(root, '.pi-test/agent-'));
+const agentDir = await createTestArtifacts('agent');
+if (standaloneFixture) {
+  const skillDir = resolve(agentDir, 'skills/adapter-skill-sentinel');
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(resolve(skillDir, 'SKILL.md'),
+    '---\nname: adapter-skill-sentinel\ndescription: Synthetic skill for verifying Pi skill discovery.\n---\nTest fixture only.\n');
+}
 const command = 'printf pi_adapter_ok';
 const requests: Record<string, any>[] = [];
 let fixtureError: unknown;
@@ -52,12 +62,14 @@ try {
     assert.ok(response.ok, `models endpoint: ${response.status}`);
   }
   const child = spawn('pi', ['--offline', '--no-extensions', '-e', resolve(root, offline ? 'scripts/fixture-extension.ts' : 'scripts/live-extension.ts'),
-    '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-mcp', '--no-session',
+    ...(withSkills ? [] : ['--no-skills']), '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-mcp', '--no-session',
     '--tools', 'bash', '--provider', 'llamacpp-adapter', '--model',
     process.env.PI_LLAMACPP_MODEL ?? 'Qwen2.5-Coder-32B-Instruct-Q4_K_M', '--mode', 'json', '-p',
     `Invoke bash exactly once with command ${JSON.stringify(command)}. Then report its output. Do not invoke any other commands.`],
     { cwd: root, env: { ...process.env, PI_TELEMETRY: '0', PI_CODING_AGENT_DIR: agentDir, PI_LLAMACPP_BASE_URL: endpoint,
-      ...(offline ? { PI_ADAPTER_FIXTURE_LOG: resolve(agentDir, 'requests.jsonl') } : {}) } });
+      ...(offline ? { PI_ADAPTER_FIXTURE_LOG: resolve(agentDir, 'requests.jsonl') } : {}),
+      ...(standaloneFixture ? { PI_LLAMACPP_STANDALONE: '1',
+        PI_ADAPTER_FIXTURE_STANDALONE: '1', PI_ADAPTER_FIXTURE_SKILLS: withSkills ? 'enabled' : 'disabled' } : {}) } });
   child.stdin.end();
   let stdout = ''; let stderr = '';
   child.stdout.on('data', data => { stdout += data; }); child.stderr.on('data', data => { stderr += data; });
@@ -78,4 +90,5 @@ try {
   if (offline) assert.equal((await readFile(resolve(agentDir, 'requests.jsonl'), 'utf8')).trim().split('\n').length, 2);
   else if (!live) assert.equal(requests.length, 2);
   console.log(`${live ? 'LIVE' : offline ? 'TRANSPORT FIXTURE' : 'HTTP FIXTURE'} PASS: Pi executed one bash call and returned pi_adapter_ok. Evidence: ${agentDir}`);
+  if (standaloneFixture) console.log(`Standalone JSON recovery passed; skill sentinel ${withSkills ? 'present without --no-skills' : 'absent with --no-skills'}.`);
 } finally { server.close(); }

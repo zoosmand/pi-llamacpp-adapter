@@ -24,26 +24,40 @@ Defaults are `http://172.18.10.6:8080/v1` and the model ID above. Override with 
 
 If package downloads are unavailable but Pi is already globally installed, `node scripts/use-installed-pi.mjs` links its runtime packages into this project's ignored `node_modules`; `npm test` and the proof scripts then work without installing another Pi. A TypeScript compiler is still needed for `npm run build`.
 
+## Running without skills
+
+This command keeps the adapter active while disabling automatic Pi skill discovery:
+
+```sh
+PI_LLAMACPP_STANDALONE=1 pi -e ./src/extension.ts --no-skills \
+  --provider llamacpp-adapter --model Qwen2.5-Coder-32B-Instruct-Q4_K_M
+```
+
+Observed Qwen2.5-Coder-32B responses often omit the requested tags and return a bare tool-call envelope. With the tagged-only defaults, those responses stay text, so this model may not execute legitimate reads or commands. The command above enables recovery of those bare responses.
+
+**With `PI_LLAMACPP_STANDALONE=1`, a response consisting only of a valid envelope is treated as an action, even if you asked for a documentation example or said not to execute it.** Ask for examples inside an enclosing data object. A bare action and a bare example have the same JSON shape; the parser cannot infer which was intended. Workspace trust does not resolve this ambiguity.
+
+In Pi 1.5.2, `-e` loads a provider **extension** independently of skills. `--no-skills` does not disable provider registration, standalone JSON normalization, built-in tools such as `bash`, or Pi's tool execution controls. The adapter does not load skills itself.
+
+`--no-skills` suppresses automatically discovered skills, including Postman skills if installed as Pi skills. Explicit `--skill` paths can still load; omit them to keep skills disabled. This flag does not disable other extensions, MCP integrations, prompt templates, or `AGENTS.md`/`CLAUDE.md` context. It also does not change the skills available to the separate coding assistant developing this project. Current repository instructions separately exclude Postman skills from our development work.
+
+`npm run test:skills` checks standalone tool recovery through the installed Pi twice: with `--no-skills` (a synthetic skill must be absent from model instructions), and without it (the same skill must be present). Both runs must execute the same single bash command through Pi.
+
 ## Response contract
 
-A recovered call must occupy the entire assistant text (surrounding whitespace allowed) and contain exactly:
+By default, recovery requires a complete tagged response (surrounding whitespace is allowed). A whole-response JSON envelope is also supported when `PI_LLAMACPP_STANDALONE=1`:
 
 ```json
 {"name":"bash","arguments":{"command":"printf pi_adapter_ok"}}
 ```
 
-Supported wrappers are `<tool_call>…</tool_call>`, `<tools>…</tools>`, and `<function-call>…</function-call>`. The name must match exactly one currently declared Pi tool. Arguments must be an object matching that tool's JSON Schema without coercion, defaults, or repair. Extra top-level argument properties are rejected. Nested properties follow the tool schema, including explicit dictionaries.
+The name must match exactly one declared Pi tool, and arguments must validate without coercion, defaults, or repair. Extra top-level argument properties are rejected; nested properties follow their schemas. The adapter emits native Pi events with `toolUse`; Pi controls execution and permission hooks. Recovery requires Pi project trust. Native upstream tool calls remain under Pi's normal policy, including in untrusted projects; the adapter's execution-time trust gate applies only to recovered calls.
 
-Ordinary text, JSON, whitespace, fenced examples, prose containing a call, malformed input, unknown tools, invalid arguments, arrays, multiple calls, and truncated responses stay unchanged. Native `tool_calls` follow Pi's existing validation/execution path. Recovery only runs on successful text-only responses.
+**Prose and code fences are not searched by default.** `PI_LLAMACPP_EMBEDDED=1` explicitly enables extraction of valid tool envelopes from them in trusted projects. This mode can execute quoted examples or a call preceded by "do not run"; project trust is not action authorization and does not make issue/comment/command-output content trusted. Existing Pi permission/confirmation extensions still apply; the adapter does not add a separate confirmation flow. Leave embedded recovery off when handling documentation examples or untrusted quoted material.
 
-Standalone JSON recovery requires `PI_LLAMACPP_STANDALONE=1`:
+Embedded mode dispatches only the first validated proposal per response. After Pi returns its actual result, Qwen decides the next action. It does not run dependent write/submit proposals concurrently. Complete JSON data documents are not searched recursively for nested examples. Invalid arguments, unknown tools, malformed JSON, and truncated/error responses remain text. Whole-response envelopes are protocol actions; use an enclosing data object for literal examples.
 
-```sh
-PI_LLAMACPP_STANDALONE=1 pi -e ./src/extension.ts \
-  --provider llamacpp-adapter --model Qwen2.5-Coder-32B-Instruct-Q4_K_M
-```
-
-A JSON answer identical to a valid tool invocation cannot be distinguished from a tool invocation by syntax. With standalone recovery enabled, that exact shape becomes executable through Pi; other JSON remains text. Leave it disabled when requesting JSON examples or data. Tagged responses also establish intent by convention, not by proving what the user wanted.
+Recovery works independently of `--no-skills`. Omitting `PI_LLAMACPP_EMBEDDED` (or setting it to `0`) keeps tagged whole-response recognition; bare whole-response JSON additionally requires `PI_LLAMACPP_STANDALONE=1`. See [recovery and trust details](docs/tool-recovery.md).
 
 ## Proof commands
 
@@ -51,10 +65,28 @@ A JSON answer identical to a valid tool invocation cannot be distinguished from 
 npm run test:e2e:offline # Real installed Pi + fixture injected through its fetch option
 npm run test:e2e         # Real installed Pi + local HTTP/SSE fixture
 npm run test:live        # Real installed Pi + configured llama.cpp endpoint
+npm run test:embedded    # Trusted default stays text; explicit opt-in runs write -> bash
+npm run test:embedded:live # Explicit embedded opt-in: real Qwen -> local fake glab
+npm run test:embedded:defaults:live # Documentation-only prompt must execute no tools
+npm run test:skills      # Skills disabled/enabled control through installed Pi
+npm run test:session     # Three prompts in one Pi process/session
+npm run test:session-temp # Session-specific paths, resume and artifact retention
 ```
 
-Each proof declares only `bash`. A test-only Pi `tool_call` handler permits exactly `printf pi_adapter_ok` once and blocks other calls. The scripts check one execution, its actual result, and (for fixtures) the second model request containing the tool result and matching ID. They use an isolated `.pi-test/agent-*` configuration directory and save JSON event evidence there. They neither disable Pi permission hooks nor install global configuration. The standalone setting is inherited, so prefix the live command with `PI_LLAMACPP_STANDALONE=1` when needed.
+The original e2e/live printf proofs declare only `bash`. A test-only Pi `tool_call` handler permits exactly `printf pi_adapter_ok` once and blocks other calls. The scripts check one execution, its actual result, and (for fixtures) the second model request containing the tool result and matching ID. They use isolated configuration and evidence directories under the OS temporary root (`pi-llamacpp-adapter-tests`), and print their full paths. They neither disable Pi permission hooks nor install global configuration. The standalone setting is inherited for legacy strict mode. The embedded proof uses Pi's explicit per-run trust/decline flags to check both trust outcomes.
 
 The offline fixture uses the same provider registration and Pi OpenAI request/SSE conversion; it replaces only network transport. The HTTP fixture additionally exercises sockets. The live proof alone verifies interaction with your loaded Qwen model and chat template. Pi's `--offline` flag in these scripts suppresses startup discovery network calls; it does not prevent model requests.
 
 See [architecture and API inspection](docs/architecture.md) and [verification evidence](docs/verification.md).
+
+## GitLab repository operations
+
+General tool guidance is independent of skills. Set `PI_LLAMACPP_GLAB_GUIDANCE=1` to add GitLab and comment workflow instructions; they are omitted by default, including when bash is enabled. Qwen uses Pi's declared bash tool, discovers the Git remote, and selects the GitLab repository explicitly. For remaining named-prefix or legacy strict-format responses, `PI_LLAMACPP_FORMAT_RETRY=1` enables one constrained formatting retry; it is disabled by default. Only the repair defaults to temperature zero; primary sampling is unchanged and explicit caller temperatures are honored. See [glab setup, safeguards, and live verification](docs/glab.md).
+
+## Session temporary files
+
+Temporary artifacts default to a private OS directory dedicated to the current Pi session, outside the repository. Run `/session-temp` to display its path; Pi bash tools can use `$PI_SESSION_TMPDIR`. Qwen receives the real directory in its instructions. New sessions get separate directories; resumed sessions reuse theirs, and files are retained after exit. See [session temporary files and proof commands](docs/session-temp.md).
+
+## Multiple turns in one session
+
+`npm run test:session` runs three consecutive prompts through one long-lived Pi RPC process with fixture transport. `npm run test:session:live` runs the same checks against the configured llama.cpp endpoint. Both keep `--no-skills` and `PI_LLAMACPP_STANDALONE=1` enabled, permit only one harmless bash command through Pi, and check session identity, retained conversation history, and ordinary JSON output. See [single-session results](docs/session-testing.md).

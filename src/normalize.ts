@@ -3,11 +3,11 @@ import { compile } from '@earendil-works/pi-schema';
 import { formats } from '@earendil-works/pi-schema/formats';
 import type { AssistantMessage, Tool, ToolCall } from '@earendil-works/pi-ai';
 
-export interface NormalizeOptions { allowStandalone?: boolean }
+export interface NormalizeOptions { allowStandalone?: boolean; allowEmbedded?: boolean }
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Only a whole response is eligible. Never scan prose, fences, or nested examples. */
+/** Strict single-envelope validator, shared by whole-response and embedded recovery. */
 export function parseCall(text: string, tools: Tool[], options: NormalizeOptions = {}): ToolCall | undefined {
   const trimmed = text.trim();
   const tagged = /^<(tool_call|tools|function-call)>\s*([\s\S]*?)\s*<\/\1>$/.exec(trimmed);
@@ -22,6 +22,8 @@ export function parseCall(text: string, tools: Tool[], options: NormalizeOptions
     const schema = matches[0].parameters;
     // Close top-level object arguments even if the tool omits additionalProperties.
     // Nested schemas keep their declared semantics (e.g. dictionary parameters).
+    // This intentionally fails closed for top-level allOf/anyOf parameter schemas
+    // whose properties are only declared inside branches; recovery is not attempted.
     const strictSchema = { ...schema, additionalProperties: false };
     if (!compile(strictSchema, { formats }).check(value.arguments)) return;
     return { type: 'toolCall', id: `adapter_${randomUUID()}`, name: value.name, arguments: value.arguments as ToolCall['arguments'] };
@@ -30,10 +32,59 @@ export function parseCall(text: string, tools: Tool[], options: NormalizeOptions
   }
 }
 
+/** Find outer JSON objects, respecting strings/escapes. Never descend into JSON data. */
+export function parseEmbeddedCall(text: string, tools: Tool[]): ToolCall | undefined {
+  // A complete data object/array/string remains data unless it is itself a tool envelope.
+  try {
+    JSON.parse(text.trim());
+    return parseCall(text, tools, { allowStandalone: true });
+  } catch { /* Prose or markup can contain complete tool-call objects. */ }
+  const calls: ToolCall[] = [];
+  const stack: string[] = [];
+  let start = -1;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (stack.length === 0) {
+      if (character === '{' || character === '[') { start = index; stack.push(character); }
+      continue;
+    }
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === '{' || character === '[') stack.push(character);
+    else if (character === '}' || character === ']') {
+      if (stack.pop() !== (character === '}' ? '{' : '[')) return;
+      if (stack.length === 0) {
+        const candidate = text.slice(start, index + 1);
+        let value: unknown;
+        try { value = JSON.parse(candidate); } catch {
+          if (text[start] === '[') continue; // A Markdown link label is not a JSON envelope.
+          return;
+        }
+        if (record(value) && Object.hasOwn(value, 'name') && Object.hasOwn(value, 'arguments')) {
+          const call = parseCall(candidate, tools, { allowStandalone: true });
+          if (!call) return; // Do not partially accept a batch containing invalid tool envelopes.
+          calls.push(call);
+        }
+      }
+    }
+  }
+  if (stack.length !== 0 || quoted) return;
+  // One dispatch per model turn avoids racing dependent actions such as write -> bash.
+  // Pi returns the result to the model before it decides the next action.
+  return calls[0];
+}
+
 export function normalizeMessage(message: AssistantMessage, tools: Tool[], options: NormalizeOptions = {}): AssistantMessage {
   // Never act on partial/error output or mix recovered calls with native tool calls.
   if (message.stopReason !== 'stop' || message.content.some(block => block.type !== 'text')) return message;
   const text = message.content.map(block => block.type === 'text' ? block.text : '').join('');
-  const call = parseCall(text, tools, options);
+  const call = parseCall(text, tools, options) ?? (options.allowEmbedded ? parseEmbeddedCall(text, tools) : undefined);
   return call ? { ...message, content: [call], stopReason: 'toolUse' } : message;
 }

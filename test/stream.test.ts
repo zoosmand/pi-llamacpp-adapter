@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeContext, type Model } from '@earendil-works/pi-ai';
-import { streamAdapter } from '../src/extension.ts';
+import { streamAdapter as rawStreamAdapter } from '../src/extension.ts';
+const streamAdapter: typeof rawStreamAdapter = (model, context, options, runtime = { isProjectTrusted: () => true }) => rawStreamAdapter(model, context, options, runtime);
 const model: Model<'openai-completions'> = {
   id: 'test', name: 'test', api: 'openai-completions', provider: 'llamacpp-adapter',
   baseUrl: 'http://fixture.invalid/v1', reasoning: false, input: ['text'],
