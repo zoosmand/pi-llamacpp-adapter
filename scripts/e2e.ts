@@ -1,6 +1,7 @@
+import { createTestArtifacts } from './test-artifacts.ts';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
@@ -11,8 +12,7 @@ const withSkills = process.argv.includes('--with-skills');
 assert.ok(!standaloneFixture || offline, '--standalone-fixture requires --offline');
 assert.ok(!withSkills || standaloneFixture, '--with-skills requires --standalone-fixture');
 const root = resolve(import.meta.dirname, '..');
-await mkdir(resolve(root, '.pi-test'), { recursive: true });
-const agentDir = await mkdtemp(resolve(root, '.pi-test/agent-'));
+const agentDir = await createTestArtifacts('agent');
 if (standaloneFixture) {
   const skillDir = resolve(agentDir, 'skills/adapter-skill-sentinel');
   await mkdir(skillDir, { recursive: true });

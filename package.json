@@ -17,7 +17,14 @@
     "test:e2e": "node scripts/e2e.ts",
     "test:live": "node scripts/e2e.ts --live",
     "test:e2e:offline": "node scripts/e2e.ts --offline",
-    "test:skills": "node scripts/e2e.ts --offline --standalone-fixture && node scripts/e2e.ts --offline --standalone-fixture --with-skills"
+    "test:skills": "node scripts/e2e.ts --offline --standalone-fixture && node scripts/e2e.ts --offline --standalone-fixture --with-skills",
+    "test:session": "node scripts/session.ts",
+    "test:session:live": "node scripts/session.ts --live",
+    "test:glab:live": "node scripts/glab-session.ts",
+    "test:embedded": "node scripts/embedded-session.ts",
+    "test:embedded:live": "node scripts/embedded-session.ts --live",
+    "test:session-temp": "node scripts/session-temp-proof.ts",
+    "test:session-temp:live": "node scripts/session-temp-proof.ts --live"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",

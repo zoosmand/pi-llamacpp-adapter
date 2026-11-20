@@ -42,3 +42,11 @@ Added `npm run test:skills`. It creates a synthetic skill in an isolated Pi agen
 | TypeScript check | Passed after restoring cached TypeScript 6.0.3 behind the existing temporary dependency link |
 
 This confirms the user's flag combination against the installed Pi with a fixture transport; no live llama.cpp request was made. Repository workflow and the current exclusion of Postman skills are recorded in `AGENTS.md`.
+
+## Consolidated PR branch — 2026-11-20
+
+`bunch-1_2_3_4` combines the committed issue-1 changes, the uncommitted issue-2 session harness, and the issue-3/4 runtime and temporary-directory changes. Original worktrees are preserved. The PR targets `dev`; no direct dev/master push or merge is part of this operation.
+
+On the consolidated checkout, TypeScript checking, all 75 unit/provider tests, `test:skills`, `test:session`, `test:session-temp`, `test:embedded`, and `test:e2e:offline` passed. The integration checks run the installed Pi 1.5.2 CLI. New evidence is outside the repository under the OS temporary root.
+
+The earlier live Qwen/GitLab-read, draft creation, simulated submission, and session-temp/resume results remain documented in the linked feature documents; they were measured during implementation. No real GitLab issue-write request was performed. Live generation remains deployment dependent, and one recovered call is dispatched per response so subsequent actions wait for actual tool results.
