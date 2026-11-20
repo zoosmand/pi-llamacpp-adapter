@@ -22,7 +22,7 @@ const client = new RpcClient({
     '--session-dir', resolve(evidence, 'sessions'), '--tools', 'read,bash,edit,write'],
   env: { PI_CODING_AGENT_DIR: resolve(evidence, 'agent'), PI_TELEMETRY: '0',
     PI_LLAMACPP_BASE_URL: process.env.PI_LLAMACPP_BASE_URL ?? 'http://172.18.10.6:8080/v1',
-    PI_LLAMACPP_STANDALONE: '1', PI_LLAMACPP_FORMAT_RETRY: '1', PI_GLAB_PROOF_UPSTREAM: resolve(evidence, 'upstream.jsonl'),
+    PI_LLAMACPP_STANDALONE: '1', PI_LLAMACPP_FORMAT_RETRY: '1', PI_LLAMACPP_GLAB_GUIDANCE: '1', PI_GLAB_PROOF_UPSTREAM: resolve(evidence, 'upstream.jsonl'),
     ...(prepareComment ? { PI_GLAB_PROOF_COMMENT: commentPath, PI_GLAB_PROOF_COMMENT_TEXT: commentText } : {}) },
 });
 client.onEvent(event => {

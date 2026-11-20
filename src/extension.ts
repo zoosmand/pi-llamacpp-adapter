@@ -18,9 +18,8 @@ export function streamAdapter(model: Model<Api>, context: TranscriptContext, opt
       // Reuse Pi's HTTP, transcript conversion, SSE, usage, cancellation, and hooks.
       if (model.api !== 'openai-completions') throw new Error('Expected openai-completions API');
       const retryEnabled = process.env.PI_LLAMACPP_FORMAT_RETRY === '1';
-      const requestOptions = retryEnabled ? { ...options, temperature: options?.temperature ?? 0 } : options;
-      const requestContext = withToolGuidance(context, process.env.PI_LLAMACPP_GUIDANCE !== '0');
-      const inner = openAIStream(model as Model<'openai-completions'>, requestContext, requestOptions);
+      const requestContext = withToolGuidance(context, process.env.PI_LLAMACPP_GUIDANCE !== '0', process.env.PI_LLAMACPP_GLAB_GUIDANCE === '1');
+      const inner = openAIStream(model as Model<'openai-completions'>, requestContext, options);
       for await (const event of inner) {
         if (event.type === 'error') { output.push(event); output.end(); return; }
       }
@@ -29,30 +28,32 @@ export function streamAdapter(model: Model<Api>, context: TranscriptContext, opt
         output.push({ type: 'error', reason: 'aborted', error: { ...message, stopReason: 'aborted', errorMessage: 'Aborted' } });
         output.end(); return;
       }
+      // One response uses one trust snapshot; the tool_call hook rechecks at execution.
+      const trusted = runtime.isProjectTrusted();
       const tools = getCurrentTools(context.messages);
       const normalizeOptions = { allowStandalone: process.env.PI_LLAMACPP_STANDALONE === '1',
-        allowEmbedded: process.env.PI_LLAMACPP_EMBEDDED !== '0' };
+        allowEmbedded: process.env.PI_LLAMACPP_EMBEDDED === '1' };
       const original = message;
-      if (runtime.isProjectTrusted()) message = normalizeMessage(message, tools, normalizeOptions);
-      const expected = runtime.isProjectTrusted() && message === original && retryEnabled ? formattingAttempt(message, tools) : undefined;
+      if (trusted) message = normalizeMessage(message, tools, normalizeOptions);
+      const expected = trusted && message === original && retryEnabled ? formattingAttempt(message, tools) : undefined;
       if (expected) {
         const repairStream = openAIStream(model as Model<'openai-completions'>,
-          formattingRetryContext(requestContext, message), requestOptions);
+          formattingRetryContext(requestContext, message), { ...options, temperature: options?.temperature ?? 0 });
         for await (const _event of repairStream) { /* Buffer the single repair before exposing any tool call. */ }
         const repair = await repairStream.result();
         const usage = combinedUsage(message.usage, repair.usage);
         if (options?.signal?.aborted || repair.stopReason === 'error' || repair.stopReason === 'aborted') {
           const reason = options?.signal?.aborted ? 'aborted' : repair.stopReason as 'error' | 'aborted';
-          output.push({ type: 'error', reason, error: { ...repair, usage, stopReason: reason, errorMessage: repair.errorMessage ?? 'Aborted' } });
+          output.push({ type: 'error', reason, error: { ...repair, usage, stopReason: reason, errorMessage: repair.errorMessage || (reason === 'aborted' ? 'Aborted' : 'Formatting repair failed') } });
           return;
         }
         const normalized = normalizeMessage(repair, tools, normalizeOptions);
         const call = normalized.content.length === 1 && normalized.content[0].type === 'toolCall' ? normalized.content[0] : undefined;
         // A formatting retry cannot authorize a different action or altered arguments.
         message = call && !call.argumentsError && normalized.stopReason === 'toolUse' && sameCall(call, expected)
-          ? { ...normalized, usage } : { ...message, usage };
+          ? { ...normalized, content: [{ ...call, id: expected.id }], usage } : { ...message, usage };
       }
-      message = runtime.isProjectTrusted() ? normalizeMessage(message, tools, normalizeOptions) : { ...original, usage: message.usage };
+      message = trusted ? normalizeMessage(message, tools, normalizeOptions) : { ...original, usage: message.usage };
       const final = message;
       const partial: AssistantMessage = { ...final, content: [] };
       output.push({ type: 'start', partial });

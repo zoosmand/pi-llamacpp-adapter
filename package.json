@@ -24,7 +24,8 @@
     "test:embedded": "node scripts/embedded-session.ts",
     "test:embedded:live": "node scripts/embedded-session.ts --live",
     "test:session-temp": "node scripts/session-temp-proof.ts",
-    "test:session-temp:live": "node scripts/session-temp-proof.ts --live"
+    "test:session-temp:live": "node scripts/session-temp-proof.ts --live",
+    "test:embedded:defaults:live": "node scripts/embedded-session.ts --live-defaults"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",

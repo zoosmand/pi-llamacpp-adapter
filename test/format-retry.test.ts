@@ -57,7 +57,7 @@ test('one repair yields one matching call, one terminal event and combined usage
   assert.equal(events.filter(event => event.type === 'done').length, 1);
   assert.ok(requests[1].messages.at(-1).content.includes('EXACT SAME arguments'));
   assert.equal(context.messages.length, 2, 'synthetic correction must not persist in transcript');
-  assert.equal(requests[0].temperature, 0);
+  assert.equal(requests[0].temperature, undefined);
   assert.equal(requests[1].temperature, 0);
 });
 for (const repair of [duplicate, '<tools>{"name":"bash","arguments":{"command":"git push"}}</tools>',
@@ -137,4 +137,23 @@ test('narrated write-then-post plan stays text even when both tools are declared
   assert.equal(requests.length, 1);
   assert.deepEqual(result.content, [{ type: 'text', text }]);
   assert.equal(events.filter(event => event.type === 'toolcall_end').length, 0);
+});
+
+test('a native formatting repair is still marked recovered and uses one trust snapshot', async () => {
+  const old = process.env.PI_LLAMACPP_FORMAT_RETRY;
+  process.env.PI_LLAMACPP_FORMAT_RETRY = '1';
+  let requests = 0;
+  let trustReads = 0;
+  try {
+    const stream = streamAdapter(model, context, { apiKey: 'local', fetch: async () => {
+      if (++requests === 1) return response(duplicate);
+      const chunk = { id: 'native-repair', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'native_repair_id', type: 'function',
+        function: { name: 'bash', arguments: JSON.stringify({ command: 'git remote -v' }) } }] }, finish_reason: 'tool_calls' }] };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    } }, { isProjectTrusted: () => ++trustReads === 1 });
+    const result = await stream.result();
+    assert.equal(result.stopReason, 'toolUse'); assert.equal(requests, 2); assert.equal(trustReads, 1);
+    assert.equal(result.content[0].type, 'toolCall');
+    if (result.content[0].type === 'toolCall') assert.ok(result.content[0].id.startsWith('adapter_'), 'repaired calls must remain subject to the recovery trust gate');
+  } finally { if (old === undefined) delete process.env.PI_LLAMACPP_FORMAT_RETRY; else process.env.PI_LLAMACPP_FORMAT_RETRY = old; }
 });

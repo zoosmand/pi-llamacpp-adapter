@@ -1,12 +1,12 @@
 # Qwen and glab — issue #3
 
-**Current recovery behavior:** [trusted tool-envelope recovery](tool-recovery.md) now recognizes calls in prose and fences. Whole-response-only and non-execution statements in the historical iterations below describe earlier versions, not the current default. Trust and permissions come from Pi.
+**Current settings after PR review:** tagged whole-response recovery is the default. Bare whole-response JSON requires `PI_LLAMACPP_STANDALONE=1`; `PI_LLAMACPP_EMBEDDED=1` is an explicit opt-in for prose/fences. GitLab/comment guidance requires `PI_LLAMACPP_GLAB_GUIDANCE=1`. See [the recovery contract](tool-recovery.md). Historical measurements below used earlier defaults.
 
-The adapter now supplies provider-scoped tool-use and GitLab workflow instructions. They are attached to the provider request's system prompt after existing Pi sections, and work with `--no-skills`. No Postman skill or separate glab tool is installed.
+The adapter supplies general provider-scoped tool-use instructions. GitLab and comment guidance is added only when `PI_LLAMACPP_GLAB_GUIDANCE=1` and the required tools are declared. They are attached to the provider request's system prompt after existing Pi sections, and work with `--no-skills`. No Postman skill or separate glab tool is installed.
 
 The model is told to invoke one declared tool at a time, wait for its result, use `bash` to run `glab`, discover the real Git remote, select self-hosted projects explicitly, inspect CLI help on uncertainty, and distinguish authentication failures from missing resources. Issue contents and command output are treated as data. Mutations, commits, pushes, and merges require the authorization established by the user and repository instructions. These are model instructions, not a security boundary: Pi tools and permission extensions remain responsible for enforcement.
 
-Set `PI_LLAMACPP_GUIDANCE=0` to disable the additional instructions. They do not mutate the original transcript or enabled tool set. GitLab guidance is omitted when `bash` is not declared; no guidance is added when no tools are declared. Sampling is unchanged when formatting retry is disabled.
+GitLab guidance is disabled by default. Set `PI_LLAMACPP_GLAB_GUIDANCE=1` for GitLab tasks; set `PI_LLAMACPP_GUIDANCE=0` to disable all additional tool instructions. They do not mutate the original transcript or enabled tool set. GitLab guidance is omitted when `bash` is not declared; no guidance is added when no tools are declared. Primary-request sampling is unchanged even when formatting retry is enabled.
 
 ## Optional single formatting retry
 
@@ -14,7 +14,7 @@ Set `PI_LLAMACPP_GUIDANCE=0` to disable the additional instructions. They do not
 
 Recognition is deliberately narrow: the candidate must validate against exactly one active tool schema, contain no prose/fences, and be either a named argument object or two to four identical complete calls separated by blank lines. Unknown tools, invalid arguments, different proposed actions, arbitrary prose with embedded JSON, and truncated responses do not trigger this retry. Recognizing a candidate does not execute it.
 
-The correction asks Qwen to emit the same call once in the existing canonical format. Only one final strict/native call with the same tool name and structurally identical arguments is accepted. A changed command, extra calls, malformed output, or truncated repair is rejected and the original text remains visible. Provider errors and cancellation remain terminal. Token usage and cost include both requests, even if the repair is rejected. With formatting retry enabled, both initial and correction requests default to temperature zero for more stable tool syntax; an explicit Pi temperature is honored. With the retry disabled, sampling is unchanged. The synthetic correction stays within that provider call and is not appended to Pi's persisted conversation.
+The correction asks Qwen to emit the same call once in the existing canonical format. Only one final strict/native call with the same tool name and structurally identical arguments is accepted. A changed command, extra calls, malformed output, or truncated repair is rejected and the original text remains visible. Provider errors and cancellation remain terminal. Token usage and cost include both requests, even if the repair is rejected. The correction request alone defaults to temperature zero; an explicit Pi temperature is honored. Primary-request sampling is unchanged. The synthetic correction stays within that provider call and is not appended to Pi's persisted conversation.
 
 This does not scan prose for executable JSON or silently execute the first proposed action. Enabling recovery still establishes a convention: call-shaped output may represent data rather than intended action. Leave the retry disabled when requesting literal examples of named calls or repeated call objects. Ordinary prose/JSON outside those narrow shapes remains unchanged.
 
@@ -24,7 +24,7 @@ The combined code is in the `pi-llamacpp-adapter-bunch-1_2_3_4` review worktree.
 
 ```sh
 cd /Users/zoosman/dev/CMBC/llama/loopback
-PI_LLAMACPP_STANDALONE=1 PI_LLAMACPP_FORMAT_RETRY=1 pi \
+PI_LLAMACPP_GLAB_GUIDANCE=1 PI_LLAMACPP_STANDALONE=1 PI_LLAMACPP_FORMAT_RETRY=1 pi \
   -e /Users/zoosman/dev/CMBC/llama/pi-llamacpp-adapter-bunch-1_2_3_4/src/extension.ts \
   --no-skills --provider llamacpp-adapter \
   --model Qwen2.5-Coder-32B-Instruct-Q4_K_M

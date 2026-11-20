@@ -1,50 +1,47 @@
 # Tool recovery and Pi trust
 
-A tool envelope with a declared `name` and schema-valid `arguments` is an instruction to execute through Pi when Pi considers the project trusted. This includes an envelope wrapped in explanatory prose or Markdown fences. The adapter now handles that normalization directly rather than requiring Qwen to produce a whole-response envelope perfectly or relying only on stronger prompts.
+## Defaults and explicit opt-ins
 
-## Recognition
+Default recovery requires a complete tagged response with a declared tool name and schema-valid arguments. Whole-response bare JSON is supported with `PI_LLAMACPP_STANDALONE=1`. Prose and Markdown fences are not searched by default, so quoted examples and responses saying “do not run this” stay text. Normal text and JSON data remain unchanged.
 
-The provider buffers the completed assistant response, checks Pi trust, and validates candidate envelopes against active transcript tool declarations. JSON object boundaries are scanned with string/escape tracking, so braces and escaped newlines inside command strings or file content do not split arguments. Tool names are exact and case-sensitive. No type coercion, default filling, argument stripping, or malformed JSON repair is performed.
+Live re-review of Qwen2.5-Coder-32B found bare envelopes for both legitimate actions and documentation-only examples. Tagged-only defaults left the observed reads and Go-test commands as text too. `PI_LLAMACPP_STANDALONE=1` recovered the real actions, but also executed the pure-envelope example despite the user's “do not execute” instruction. These responses have the same syntactic shape; this is not something a JSON parser can distinguish. Request literal examples inside a data object rather than as bare envelopes.
 
-Complete ordinary JSON documents are parsed as data. An outer object/array containing nested examples is not searched recursively. A complete object which is itself a valid tool envelope is executable in trusted mode. Unknown/ambiguous tool names, invalid arguments, incomplete JSON, and truncated/error output remain text. An invalid proposed envelope in a multi-envelope response prevents partial acceptance of that response.
+`PI_LLAMACPP_EMBEDDED=1` explicitly enables extraction from prose and fences. This is broader syntactic recognition, not an intent or authorization check: a valid quoted call, including one the surrounding prose rejects, may execute. Pi project trust does not extend to GitLab issue bodies, MR comments, command output, or every example the model echoes. Use default recognition for documentation/untrusted quoted material; Pi's existing permission/confirmation handlers remain responsible for execution policy. The adapter does not add another confirmation dialog.
 
-Only the first validated envelope is converted per model response; prose around that executable envelope is replaced by its native tool-call block. This also deduplicates repeated proposals within a response. Remaining proposed actions are not queued or run in parallel: Pi returns the actual result to Qwen, which must then decide and emit the next action from the user request. This preserves dependencies such as write-file -> submit-file without changing Pi's global execution mode. It does not guarantee Qwen completes every later action.
+## Recognition and validation
 
-## Trust and execution
+The provider buffers the completed response, snapshots project trust once, and validates envelopes against active transcript tools. Exact names, unique declarations, and strict arguments are required. No coercion, defaults, stripping, or malformed-JSON repair is applied. The top-level schema is closed with additionalProperties:false; tools whose properties are declared only inside top-level allOf/anyOf branches currently fail closed and remain text rather than being flattened automatically.
 
-`registerTrustGate()` observes `ctx.isProjectTrusted()` from session startup and before-agent-start events. The provider reads that live decision before recovery and again before finalizing its response. A `tool_call` hook rechecks Pi's current trust at execution and blocks adapter/relevant native calls if untrusted. No trust decision is granted or persisted by the adapter. Pi's API includes remembered, temporary, CLI, and default trust decisions.
+Opt-in embedded scanning tracks JSON strings, escapes, and outer containers. It does not descend into complete JSON data objects or arrays. Unknown/ambiguous tools, invalid envelopes, malformed JSON, and truncated/error output are not executed. An invalid proposed envelope prevents partial acceptance of its batch.
 
-The adapter does not spawn bash or glab. It emits Pi-native events with `stopReason: toolUse`. Pi executes the declared tool, applies its own hooks, and returns the result. Trust permits recovery; it does not bypass any other Pi permission handler. Direct SDK consumers of exported `streamAdapter` must supply the runtime trust reader; omission defaults to untrusted.
+Only the first validated proposal per response is dispatched. Duplicate proposals do not form a batch. Remaining actions are reconsidered by the model after Pi returns the actual result, avoiding write-file/submit-file races. This does not guarantee the model completes every subsequent action.
 
-Embedded recovery is enabled by default in trusted projects. It does not need skills, `PI_LLAMACPP_STANDALONE`, or a formatting retry. `PI_LLAMACPP_EMBEDDED=0` restores legacy strict whole-response recognition, where bare JSON requires `PI_LLAMACPP_STANDALONE=1`. `PI_LLAMACPP_FORMAT_RETRY=1` remains optional for validated named-prefix legacy forms; it is attempted only when direct recovery found no call. A corrected call must still match the original validated name and arguments.
+## Trust scope
 
-## Deterministic proof
+`registerTrustGate()` observes Pi's `ctx.isProjectTrusted()` without granting or persisting trust. One trust snapshot governs each provider response, including a formatting repair. At actual dispatch the tool_call handler rechecks trust for recovered `adapter_` IDs, so a later revocation can still block them.
+
+Ordinary native upstream tool_calls pass through unchanged and remain subject to Pi's standard tool/permission policy, even in an untrusted project. They are not blocked merely because the selected provider is llamacpp-adapter. A native call used as an accepted formatting correction is still a recovered action and receives an adapter_ ID so the recovery gate applies.
+
+The adapter never launches bash/glab itself. It emits Pi-native events with toolUse and waits for Pi's normal loop. Direct SDK consumers must supply a runtime trust reader for recovery; omission defaults to untrusted.
+
+## Optional guidance and formatting correction
+
+General tool guidance works without skills. The larger GitLab/comment instructions are omitted unless `PI_LLAMACPP_GLAB_GUIDANCE=1` and the required tools are declared. `PI_LLAMACPP_GUIDANCE=0` disables all extra tool instructions.
+
+`PI_LLAMACPP_FORMAT_RETRY=1` permits one additional provider request for narrowly recognized, validated named-prefix or repeated-identical calls that direct recovery did not accept. The correction must keep the same name and exact arguments. Its synthetic instruction is not persisted into Pi history. Failed/changed repairs remain text; cancellation/provider errors are terminal. Both requests contribute usage/cost.
+
+Only the correction defaults to temperature zero. Primary sampling is unchanged, and an explicit Pi temperature is honored. Error fallback text distinguishes a failed correction from cancellation.
+
+## Verification
 
 ```sh
 npm run test:embedded
-```
-
-A fixture returns the reported response shape: a prose heading and fenced write envelope followed by another heading and fenced bash envelope. Real installed Pi is tested twice with actual per-run Pi trust flags:
-
-- `--no-approve`: the response remains text, no tools execute, no draft or submission artifact exists.
-- `--approve`: Pi writes the exact multiline draft. After its successful result, a second fenced bash proposal is executed. Bash runs a local executable simulating glab, which verifies stdin and writes a simulated-submission artifact. Tool events prove the write completed before bash started, exactly once each.
-
-The model transport is a fixture; Pi, write, bash, stdin redirection, and file checks are real. No network, GitLab credentials, or actual issue POST is used. Passing evidence: `.pi-test/embedded-1x7s87/` (trusted and untrusted subdirectories). Every run prints its own paths.
-
-## Live model proof
-
-```sh
+npm run test:embedded:defaults:live
 npm run test:embedded:live
 ```
 
-Uses real Qwen with the same exact-action Pi guard and local simulated glab destination. The prompt supplies that local command explicitly because the test must not post to the real issue. This checks model continuation from file writing to submission; it is distinct from the real GitLab read proof:
+The deterministic installed-Pi proof covers three modes: untrusted with embedded enabled (no tools), trusted with embedded absent (narrated/fenced text stays text), and trusted with embedded explicitly enabled (one real write then one real bash call to a local simulated glab destination). The guard blocks other actions. No actual GitLab POST is used.
 
-```sh
-npm run test:glab:live -- --prepare-comment
-```
+The live-defaults proof asks real Qwen for a documentation-only bash envelope and requires zero tool execution. A guard blocks the example command if a regression attempts dispatch. That negative test does not establish that Qwen emits tagged responses for legitimate actions; the re-review observed legitimate bare envelopes staying text under those defaults as well. The opt-in live proof instead exercises writing and submitting exact test content to a local simulation; it is not a real issue mutation.
 
-That proof reads the actual loopback issue, answers from retained history, and writes a local draft, while blocking all posting. Updated trust-aware adapter evidence: `.pi-test/glab-ep9YiM/`. The live-Qwen simulated submission also passed in `.pi-test/embedded-H87ySW/trusted/`: a real write followed by a real bash invocation, exact stdin verified by the local fake glab. An earlier live simulation was blocked by the test guard because Qwen omitted optional path quotes; the guard now accepts only the exact quoted/unquoted command forms for the known shell-safe artifact paths, not arbitrary command transformations. Real GitLab issue mutation remains untested and was not performed.
-
-These changes are consolidated on `bunch-1_2_3_4` for PR review. `docs/verification.md` and earlier portions of `docs/glab.md` retain historical evidence for the earlier strict parser; this document and the README describe the current trust-aware behavior.
-
-Final local checks: TypeScript and all 73 tests pass, including trust gating, embedded prose/fence recovery, ordinary JSON/data-array preservation, and the prior strict/format-retry tests. Deterministic trusted/untrusted submission and the original Pi fixture proof also pass.
+Earlier implementation evidence under .pi-test belongs to the preserved issue-3 worktree and used pre-review defaults. Current proofs print paths under the validated OS temporary root. The existing real-GitLab read/draft proof remains available as `npm run test:glab:live -- --prepare-comment`; it explicitly enables GitLab guidance and blocks posting.

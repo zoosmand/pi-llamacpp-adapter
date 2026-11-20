@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, realpath } from 'node:fs/promises';
+import { ensurePrivateDirectory } from './private-directory.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
@@ -10,9 +10,14 @@ export const sessionTempRoot = () => join(tmpdir(), 'pi-llamacpp-adapter', 'sess
 export async function createSessionTemp(sessionId: string, root = sessionTempRoot()): Promise<string> {
   const key = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)
     ? `session-${sessionId}` : `hash-${createHash('sha256').update(sessionId).digest('hex')}`;
-  const directory = join(root, key);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  return realpath(directory);
+  // Check each adapter-owned ancestor before creating anything beneath it.
+  if (root === sessionTempRoot()) {
+    const parent = await ensurePrivateDirectory(join(tmpdir(), 'pi-llamacpp-adapter'));
+    root = await ensurePrivateDirectory(join(parent, 'sessions'));
+  } else {
+    root = await ensurePrivateDirectory(root);
+  }
+  return ensurePrivateDirectory(join(root, key));
 }
 
 export function sessionTempInstructions(directory: string): string {

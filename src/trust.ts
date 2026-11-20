@@ -7,8 +7,8 @@ export function registerTrustGate(pi: ExtensionAPI): () => boolean {
   pi.on('session_start', observe);
   pi.on('before_agent_start', observe);
   pi.on('tool_call', (event, ctx) => {
-    if ((event.toolCallId.startsWith('adapter_') || ctx.model?.provider === 'llamacpp-adapter') && !ctx.isProjectTrusted()) {
-      return { block: true, reason: 'The llamacpp adapter requires a trusted project before executing tool calls.' };
+    if (event.toolCallId.startsWith('adapter_') && !ctx.isProjectTrusted()) {
+      return { block: true, reason: 'The llamacpp adapter requires a trusted project before executing recovered tool calls.' };
     }
   });
   return () => trusted();

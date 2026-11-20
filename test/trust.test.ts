@@ -17,7 +17,7 @@ test('observes Pi trust without granting it and rechecks at tool execution', () 
   trusted = false;
   assert.equal(isTrusted(), false);
   assert.equal(handlers.get('tool_call')!(event, ctx).block, true);
-  assert.equal(handlers.get('tool_call')!({ ...event, toolCallId: 'native' }, ctx).block, true);
+  assert.equal(handlers.get('tool_call')!({ ...event, toolCallId: 'native' }, ctx), undefined, 'native calls stay under Pi control, regardless of project trust');
   assert.equal(handlers.get('tool_call')!({ ...event, toolCallId: 'native' }, { ...ctx, model: { provider: 'other' } }), undefined);
   assert.equal(handlers.has('project_trust'), false, 'must not automatically approve the project');
 });

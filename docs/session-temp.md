@@ -19,7 +19,7 @@ Qwen is instructed to put temporary comment drafts, request bodies, scratch outp
 
 A new session ID receives a different directory. Switching back or resuming the same session on the same temporary root reuses the old directory. Files are retained on shutdown; no automatic deletion is performed by the adapter. Normal operating-system cleanup can remove temporary storage, so copy anything requiring archival retention elsewhere.
 
-Directory names are derived safely from session IDs; unsafe identifiers use a hash and cannot escape the root. New directories use mode 0700. The adapter does not overwrite source files or migrate/delete existing draft files when enabled.
+Directory names are derived safely from session IDs; unsafe identifiers use a hash and cannot escape the root. New directories use mode 0700. Before reusing the application root, sessions root, or an individual session directory, the adapter rejects symlinks, wrong ownership (on POSIX), and group/other permissions. It never silently chmods or takes ownership of an unsafe existing directory. Proof-evidence roots use the same checks. The adapter does not overwrite source files or migrate/delete existing draft files when enabled.
 
 ## Run and review
 
@@ -27,7 +27,7 @@ The isolated feature is in `issue-4`. The consolidated review branch, including 
 
 ```sh
 cd /Users/zoosman/dev/CMBC/llama/loopback
-PI_LLAMACPP_STANDALONE=1 PI_LLAMACPP_FORMAT_RETRY=1 pi \
+PI_LLAMACPP_GLAB_GUIDANCE=1 PI_LLAMACPP_STANDALONE=1 PI_LLAMACPP_FORMAT_RETRY=1 pi \
   -e /Users/zoosman/dev/CMBC/llama/pi-llamacpp-adapter-bunch-1_2_3_4/src/extension.ts \
   --no-skills --provider llamacpp-adapter \
   --model Qwen2.5-Coder-32B-Instruct-Q4_K_M

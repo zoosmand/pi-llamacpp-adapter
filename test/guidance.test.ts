@@ -8,7 +8,7 @@ const read = { name: 'read', description: 'read', parameters: { type: 'object', 
 test('adds tool protocol and glab guidance without changing transcript or declarations', () => {
   const context = normalizeContext({ systemPrompt: 'Follow project instructions.', tools: [bash], messages: [{ role: 'user', content: 'Read issue 6', timestamp: 1 }] });
   const snapshot = structuredClone(context);
-  const result = withToolGuidance(context);
+  const result = withToolGuidance(context, true, true);
   const prompt = getCurrentSystemPrompt(result.messages);
   assert.ok(prompt.includes('Follow project instructions.'));
   assert.ok(prompt.includes('<tool_call>'));
@@ -25,7 +25,7 @@ test('adds tool protocol and glab guidance without changing transcript or declar
 });
 test('read-only tool set receives no glab/bash instructions', () => {
   const context = normalizeContext({ tools: [read], messages: [] });
-  const prompt = getCurrentSystemPrompt(withToolGuidance(context).messages);
+  const prompt = getCurrentSystemPrompt(withToolGuidance(context, true, true).messages);
   assert.ok(prompt.includes('Tool execution protocol'));
   assert.ok(!prompt.includes('GitLab repository workflow'));
 });
@@ -38,9 +38,9 @@ test('disabled guidance or no declared tools preserves context identity', () => 
 test('tool removal prevents glab guidance and repeated requests do not accumulate instructions', () => {
   const context = normalizeContext({ tools: [bash, read], messages: [] });
   context.messages.push({ role: 'system', content: '', timestamp: 1, toolsRemoved: [{ name: 'bash' }] });
-  const prompt = getCurrentSystemPrompt(withToolGuidance(context).messages);
+  const prompt = getCurrentSystemPrompt(withToolGuidance(context, true, true).messages);
   assert.ok(!prompt.includes('GitLab repository workflow'));
-  assert.equal(getCurrentSystemPrompt(withToolGuidance(context).messages), prompt);
+  assert.equal(getCurrentSystemPrompt(withToolGuidance(context, true, true).messages), prompt);
 });
 test('sectioned and array system messages retain metadata and original text', () => {
   const context = normalizeContext({ tools: [bash], messages: [] });
@@ -53,4 +53,16 @@ test('sectioned and array system messages retain metadata and original text', ()
   assert.ok(getCurrentSystemPrompt(result.messages).includes('Approval required.'));
   assert.deepEqual(getCurrentTools(result.messages), [bash]);
   assert.equal(first.content.length, 1);
+});
+
+test('bash alone does not opt into GitLab/comment guidance', () => {
+  const context = normalizeContext({ tools: [bash, { name: 'write', description: 'write', parameters: { type: 'object' } }], messages: [] });
+  const normal = getCurrentSystemPrompt(withToolGuidance(context).messages);
+  const enabled = getCurrentSystemPrompt(withToolGuidance(context, true, true).messages);
+  assert.ok(normal.includes('Tool execution protocol'));
+  assert.ok(!normal.includes('GitLab repository workflow'));
+  assert.ok(!normal.includes('Authorized issue-comment workflow'));
+  assert.ok(enabled.includes('GitLab repository workflow'));
+  assert.ok(enabled.includes('Authorized issue-comment workflow'));
+  assert.equal(withToolGuidance(context, false, true), context);
 });

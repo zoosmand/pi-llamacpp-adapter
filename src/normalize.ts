@@ -22,6 +22,8 @@ export function parseCall(text: string, tools: Tool[], options: NormalizeOptions
     const schema = matches[0].parameters;
     // Close top-level object arguments even if the tool omits additionalProperties.
     // Nested schemas keep their declared semantics (e.g. dictionary parameters).
+    // This intentionally fails closed for top-level allOf/anyOf parameter schemas
+    // whose properties are only declared inside branches; recovery is not attempted.
     const strictSchema = { ...schema, additionalProperties: false };
     if (!compile(strictSchema, { formats }).check(value.arguments)) return;
     return { type: 'toolCall', id: `adapter_${randomUUID()}`, name: value.name, arguments: value.arguments as ToolCall['arguments'] };
